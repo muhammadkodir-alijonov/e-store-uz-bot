@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-store-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - USERNAME=${USERNAME}
+      - TOKEN=${TOKEN}
+      - BASE_URL=${BASE_URL}
+      - WEBHOOK_PATH=${WEBHOOK_PATH}
+      - SPRING_PROFILES_ACTIVE=prod
+    networks:
+      - bot-network
+    # Wait for the store API to be available before starting the bot
+    command: ["/wait-for-it.sh", "store-api:9090", "--", "java", "-jar", "app.jar"]
+    depends_on:
+      - store-api
+
+  # This is a placeholder for your store API service
+  # You can replace this with your actual store API configuration
+  store-api:
+    image: nginx:alpine  # Replace with your actual store API image
+    container_name: store-api
+    ports:
+      - "8082:8080"
+    networks:
+      - bot-network
+    # This is just a placeholder. You should replace this with your actual store API configuration
+    volumes:
+      - ./store-api-mock:/usr/share/nginx/html
+    # You can add environment variables for your store API here
+
+networks:
+  bot-network:
+    driver: bridge
+
