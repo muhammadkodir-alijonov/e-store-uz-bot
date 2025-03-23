@@ -6,12 +6,14 @@ import lombok.Data;
 @Data
 public class UserSession {
     private Long chatId;
+    private Integer messageId; // Track last message ID
     private boolean authenticated;
     private String token;
     private AuthState authState;
+    private MenuState menuState;
     private String username;
     private String password;
-    private MenuState menuState;
+    private MenuState currentMenu;
 
     public UserSession(Long chatId) {
         this.chatId = chatId;

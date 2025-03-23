@@ -23,8 +23,14 @@ public class WebhookController {
     @PostMapping
     public ResponseEntity<BotApiMethod<?>> onUpdateReceived(@RequestBody Update update) {
         log.info("Received update: {}", update);
+
+        if (update.hasMessage()) {
+            log.info("Message received: {}", update.getMessage().getText());
+        } else if (update.hasCallbackQuery()) {
+            log.info("Callback query received: {}", update.getCallbackQuery().getData());
+        }
+
         return ResponseEntity.ok(telegramBot.onWebhookUpdateReceived(update));
     }
+
 }
-
-

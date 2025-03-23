@@ -5,15 +5,17 @@ import org.example.telegramstorebotapplication.config.BotConfig;
 import org.example.telegramstorebotapplication.model.AuthResponse;
 import org.example.telegramstorebotapplication.model.UserSession;
 import org.example.telegramstorebotapplication.service.*;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramWebhookBot;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Map;
 
 @Component
@@ -50,7 +52,7 @@ public class TelegramBot extends TelegramWebhookBot {
             if (update.hasMessage() && update.getMessage().hasText()) {
                 return handleTextMessage(update);
             } else if (update.hasCallbackQuery()) {
-                return handleCallbackQuery(update);
+                return handleCallbackQuery(update.getCallbackQuery());
             }
         } catch (Exception e) {
             log.error("Error handling update: {}", e.getMessage());
@@ -98,8 +100,35 @@ public class TelegramBot extends TelegramWebhookBot {
             return message;
         } else if (authState == UserSession.AuthState.AWAITING_PASSWORD) {
             authService.setPassword(chatId, messageText);
+            UserSession session = sessionService.getSession(chatId);
 
-            // Attempt to authenticate asynchronously
+            if (session.getUsername() == null || session.getPassword() == null) {
+                log.error("Username or password is null for chat ID: {}", chatId);
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("Username or password is missing, /start");
+                return message;
+            }
+
+            String[] parts = session.getUsername().split(":");
+            if (parts.length < 2) {
+                log.error("Invalid username format for chat ID: {}", chatId);
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("Invalid username format, /start");
+                return message;
+            }
+
+            String fullDomain = parts[1];
+            int firstDot = fullDomain.indexOf('.');
+            String subdomain = (firstDot != -1) ? fullDomain.substring(0, firstDot) : fullDomain;
+            if (isAccessDeniedSubdomain(subdomain)) {
+                log.warn("Access denied for subdomain '{}' - Chat ID: {}", subdomain, chatId);
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("Sizga asosiy domainga kirishga ruxsat yo‘q, uzura!!! /start");
+                return message;
+            }
             authService.authenticate(chatId)
                     .subscribe(
                             response -> handleAuthenticationResponse(chatId, response),
@@ -112,8 +141,11 @@ public class TelegramBot extends TelegramWebhookBot {
             message.setText("Authenticating...");
             return message;
         }
-
         return null;
+    }
+
+    private boolean isAccessDeniedSubdomain(String subdomain) {
+        return "e-store".equalsIgnoreCase(subdomain);
     }
 
     private void handleAuthenticationResponse(Long chatId, AuthResponse response) {
@@ -148,7 +180,7 @@ public class TelegramBot extends TelegramWebhookBot {
         log.error("Error during authentication: {}", error.getMessage());
         SendMessage errorMessage = new SendMessage();
         errorMessage.setChatId(chatId.toString());
-        errorMessage.setText("An error occurred during authentication. Please try again later.");
+        errorMessage.setText("An error occurred during authentication. Please try again later. /start");
 
         try {
             execute(errorMessage);
@@ -157,40 +189,32 @@ public class TelegramBot extends TelegramWebhookBot {
         }
     }
 
-    private BotApiMethod<?> handleCallbackQuery(Update update) {
-        String callbackData = update.getCallbackQuery().getData();
-        Long chatId = update.getCallbackQuery().getMessage().getChatId();
-        Integer messageId = update.getMessage().getMessageId();
+    public BotApiMethod<?> handleCallbackQuery(CallbackQuery callbackQuery) {
+        Long chatId = callbackQuery.getMessage().getChatId();
+        String data = callbackQuery.getData();
+        UserSession session = sessionService.getSession(chatId);
 
-        log.info("Received callback query: '{}' from chat ID: {}", callbackData, chatId);
-
-        if (!authService.isAuthenticated(chatId)) {
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("You need to authenticate first. Please enter your username:");
-            authService.setAuthState(chatId, UserSession.AuthState.AWAITING_USERNAME);
-            return message;
+        switch (data) {
+            case "daily_stats":
+                return menuService.createStatisticsSubMenu(callbackQuery, UserSession.MenuState.DAILY_STATISTICS);
+            case "weekly_stats":
+                return menuService.createStatisticsSubMenu(callbackQuery, UserSession.MenuState.WEEKLY_STATISTICS);
+            case "monthly_stats":
+                return menuService.createStatisticsSubMenu(callbackQuery, UserSession.MenuState.MONTHLY_STATISTICS);
+            case "yearly_stats":
+                return menuService.createStatisticsSubMenu(callbackQuery, UserSession.MenuState.YEARLY_STATISTICS);
+            case "main_menu":
+                // O'zgartirish: Yangi xabar yuborish o'rniga mavjud xabarni tahrirlash
+                return menuService.handleBackToMainMenu(callbackQuery);
+            default:
+                // Qo'shimcha: Agar callbackData statistikaga tegishli bo'lsa
+                if (data.contains("_general") || data.contains("_product") || data.contains("_order")) {
+                    return handleStatisticsRequest(chatId, data);
+                }
         }
-
-        if (callbackData.equals("main_menu")) {
-            return menuService.createMainMenu(chatId);
-        } else if (callbackData.equals("daily_stats")) {
-            return menuService.createStatisticsSubMenu(chatId, UserSession.MenuState.DAILY_STATISTICS);
-        } else if (callbackData.equals("weekly_stats")) {
-            return menuService.createStatisticsSubMenu(chatId, UserSession.MenuState.WEEKLY_STATISTICS);
-        } else if (callbackData.equals("monthly_stats")) {
-            return menuService.createStatisticsSubMenu(chatId, UserSession.MenuState.MONTHLY_STATISTICS);
-        } else if (callbackData.equals("yearly_stats")) {
-            return menuService.createStatisticsSubMenu(chatId, UserSession.MenuState.YEARLY_STATISTICS);
-        } else if (callbackData.startsWith("daily_") ||
-                callbackData.startsWith("weekly_") ||
-                callbackData.startsWith("monthly_") ||
-                callbackData.startsWith("yearly_")) {
-            return handleStatisticsRequest(chatId, callbackData);
-        }
-
         return null;
     }
+
 
     private BotApiMethod<?> handleStatisticsRequest(Long chatId, String callbackData) {
         String[] parts = callbackData.split("_");
@@ -274,9 +298,9 @@ public class TelegramBot extends TelegramWebhookBot {
         return null;
     }
 
-    @Override
+        @Override
     public String getBotPath() {
-        return botConfig.getWebhookPath();
+        return botConfig.getWebhookUrl();
     }
 
     @Override

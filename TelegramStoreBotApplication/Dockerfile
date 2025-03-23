@@ -1,22 +1,35 @@
-# Build stage
-FROM maven:3.9-eclipse-temurin-17-alpine AS build
+# Use a base image with OpenJDK
+FROM openjdk:17-jdk-slim as build
+
+# Set the working directory inside the container
 WORKDIR /app
+
+# Install Maven in the build image
+RUN apt-get update && apt-get install -y maven && rm -rf /var/lib/apt/lists/*
+
+# Copy the Maven build files
 COPY pom.xml .
-# Download all required dependencies into one layer
-RUN mvn dependency:go-offline -B
-COPY src ./src
-RUN mvn package -DskipTests
 
-# Run stage
-FROM eclipse-temurin:17-jre-alpine
+# Download dependencies (this will be cached if unchanged)
+RUN mvn dependency:go-offline
+
+# Copy the rest of the source code
+COPY src /app/src
+
+# Build the application (create the JAR file)
+RUN mvn clean package -DskipTests
+
+# Use a lightweight base image for the final container
+FROM openjdk:17-jdk-slim
+
+# Set the working directory inside the container
 WORKDIR /app
-COPY --from=build /app/target/telegram-store-bot-0.0.1-SNAPSHOT.jar app.jar
 
-# Add wait-for-it script to wait for dependent services
-RUN apk add --no-cache bash
-COPY wait-for-it.sh /wait-for-it.sh
-RUN chmod +x /wait-for-it.sh
+# Copy the JAR file from the build stage
+COPY --from=build /app/target/*.jar app.jar
 
+# Expose the port the app will run on
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
 
+# Run the application when the container starts
+ENTRYPOINT ["java", "-jar", "app.jar"]

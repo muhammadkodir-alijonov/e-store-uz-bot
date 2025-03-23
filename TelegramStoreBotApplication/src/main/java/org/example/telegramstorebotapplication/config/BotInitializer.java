@@ -27,13 +27,13 @@ public class BotInitializer {
 
             // Create SetWebhook object
             SetWebhook setWebhook = SetWebhook.builder()
-                    .url(botConfig.getWebhookPath())
+                    .url(botConfig.getWebhookUrl())
                     .build();
 
             // Register bot with webhook
             telegramBotsApi.registerBot(telegramBot, setWebhook);
 
-            log.info("Telegram bot registered successfully with webhook: {}", botConfig.getWebhookPath());
+            log.info("Telegram bot registered successfully with webhook: {}", botConfig.getWebhookUrl());
         } catch (TelegramApiException e) {
             log.error("Error registering Telegram bot: {}", e.getMessage());
         }

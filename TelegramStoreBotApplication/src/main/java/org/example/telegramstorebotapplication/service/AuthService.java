@@ -16,28 +16,17 @@ public class AuthService {
 
     private final WebClient webClient;
     private final SessionService sessionService;
-
     public Mono<AuthResponse> authenticate(Long chatId) {
         UserSession session = sessionService.getSession(chatId);
 
-        if (session.getUsername() == null || session.getPassword() == null) {
-            log.error("Username or password is null for chat ID: {}", chatId);
-            return Mono.just(new AuthResponse(null, null, "Username or password is missing"));
-        }
-
         String[] parts = session.getUsername().split(":");
-        if (parts.length < 2) {
-            System.out.println("Invalid format");
-        }
-
         String fullDomain = parts[1];
-
         int firstDot = fullDomain.indexOf('.');
-
         String subdomain = (firstDot != -1) ? fullDomain.substring(0, firstDot) : fullDomain;
         String username = parts[0];
-        System.out.println("The username "+ username);
-        System.out.println("The subdomain: " + subdomain);
+
+        log.info("Username: {}, Subdomain: {}", username, subdomain);
+
         AuthRequest authRequest = new AuthRequest(username, session.getPassword());
         return webClient.post()
                 .uri("/api/v1/auth/login")
@@ -45,7 +34,7 @@ public class AuthService {
                 .bodyValue(authRequest)
                 .retrieve()
                 .bodyToMono(AuthResponse.class)
-                .doOnSuccess(  response -> {
+                .doOnSuccess(response -> {
                     if (response.getData() != null && !response.getData().isEmpty()) {
                         session.setAuthenticated(true);
                         session.setToken(response.getData());
@@ -53,11 +42,10 @@ public class AuthService {
                         sessionService.saveSession(session);
                         log.info("User authenticated successfully: {}", chatId);
                     } else {
-                        log.warn("Authentication failed for chat ID: {}", chatId);
+                        log.warn("Authentication failed for chat ID: {}, /start", chatId);
                     }
                 })
-
-                .doOnError(error -> log.error("Error during authentication: {}", error.getMessage()));
+                .doOnError(error -> log.error("Error during authentication: {}, /start", error.getMessage()));
     }
 
     public boolean isAuthenticated(Long chatId) {
